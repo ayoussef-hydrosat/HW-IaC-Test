@@ -1,0 +1,140 @@
+name: Infra PR - Plan, Test, Cost Analysis
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-infra-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TOFU_VERSION: "1.11.0"
+  PLAN_ENABLE_K8S_RESOURCES: "false"
+  PLAN_ENABLE_CERT_VALIDATION_RECORDS: "false"
+  PLAN_REFRESH: "false"
+
+jobs:
+  plan_policy:
+    name: Infra Check (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: staging
+            tf_dir: portal-staging
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
+            policy_data: policy/data/staging.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: tofu fmt check
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu fmt -check -recursive
+
+      - name: Configure AWS Credentials (OIDC) - plan role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.role_to_assume }}
+          role-session-name: pr-plan-${{ matrix.env }}-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: tofu init
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu init -input=false
+
+      - name: tofu validate
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu validate
+
+      - name: tofu plan
+        working-directory: ${{ matrix.tf_dir }}
+        run: |
+          set -euo pipefail
+          TF_VAR_enable_k8s_resources=${{ env.PLAN_ENABLE_K8S_RESOURCES }} \
+          TF_VAR_enable_cert_validation_records=${{ env.PLAN_ENABLE_CERT_VALIDATION_RECORDS }} \
+          tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
+
+      - name: tofu show json
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu show -json tfplan > tfplan.json
+
+      - name: Install Conftest
+        run: |
+          set -euo pipefail
+          VERSION=0.57.0
+          curl -sSL -o conftest.tar.gz "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz"
+          tar -xzf conftest.tar.gz conftest
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+
+      - name: Conftest policy checks
+        run: |
+          set -euo pipefail
+          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            ${{ matrix.tf_dir }}/tfplan
+            ${{ matrix.tf_dir }}/tfplan.json
+          if-no-files-found: error
+
+      - name: tofu test
+        working-directory: ${{ matrix.tf_dir }}
+        run: |
+          set -euo pipefail
+          TF_VAR_enable_k8s_resources=false \
+          TF_VAR_enable_cert_validation_records=false \
+          tofu test -test-directory=../tests
+
+      - name: Create plan summary markdown
+        id: summary
+        run: |
+          set -euo pipefail
+          f="${{ matrix.tf_dir }}/tfplan.json"
+          adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
+          changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
+          destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
+
+          {
+            echo "## OpenTofu plan summary (${{ matrix.env }})"
+            echo ""
+            echo "- **Adds:** ${adds}"
+            echo "- **Changes:** ${changes}"
+            echo "- **Destroys:** ${destroys}"
+            echo ""
+            echo "### Adds"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "### Changes"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("update")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "### Destroys"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "Artifacts: \`tfplan-${{ matrix.env }}\` (includes tfplan + tfplan.json)"
+          } > /tmp/plan_summary_${{ matrix.env }}.md
+
+      - name: Post sticky PR comment (plan summary)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: tofu-plan-${{ matrix.env }}
+          path: /tmp/plan_summary_${{ matrix.env }}.md
