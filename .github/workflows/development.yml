@@ -104,10 +104,10 @@ jobs:
               sys.exit(0)
           
           tests, passed, warnings, failures, exceptions, skipped = m.groups()
-          print(f\"conftest_tests={tests}\")
-          print(f\"conftest_passed={passed}\")
-          print(f\"conftest_failed={failures}\")
-          print(f\"conftest_summary={tests} tests, {passed} passed, {warnings} warnings, {failures} failures, {exceptions} exceptions, {skipped} skipped\")
+          print(f"conftest_tests={tests}")
+          print(f"conftest_passed={passed}")
+          print(f"conftest_failed={failures}")
+          print(f"conftest_summary={tests} tests, {passed} passed, {warnings} warnings, {failures} failures, {exceptions} exceptions, {skipped} skipped")
           PY
 
       - name: Upload plan artifacts
@@ -140,9 +140,9 @@ jobs:
               sys.exit(0)
           
           passed, failed = m.groups()
-          print(f\"tofu_passed={passed}\")
-          print(f\"tofu_failed={failed}\")
-          print(f\"tofu_summary=Success! {passed} passed, {failed} failed.\")
+          print(f"tofu_passed={passed}")
+          print(f"tofu_failed={failed}")
+          print(f"tofu_summary=Success! {passed} passed, {failed} failed.")
           PY
 
       - name: Create plan summary markdown
