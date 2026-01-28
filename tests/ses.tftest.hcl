@@ -2,8 +2,7 @@ run "ses_basics" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
   assert {

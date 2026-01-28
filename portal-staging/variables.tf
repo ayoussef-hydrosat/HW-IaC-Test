@@ -82,14 +82,8 @@ variable "github_oidc_thumbprints" {
   ]
 }
 
-variable "enable_cert_validation_records" {
-  description = "Enable Route53 certificate validation records"
+variable "is_test_mode_enabled" {
+  description = "Enable test mode to disable resources that require apply-time values"
   type        = bool
-  default     = true
-}
-
-variable "enable_k8s_resources" {
-  description = "Enable Kubernetes and Helm resources"
-  type        = bool
-  default     = true
+  default     = false
 }

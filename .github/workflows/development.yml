@@ -17,8 +17,7 @@ concurrency:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   TOFU_VERSION: "1.11.0"
-  PLAN_ENABLE_K8S_RESOURCES: "true"
-  PLAN_ENABLE_CERT_VALIDATION_RECORDS: "true"
+  PLAN_TEST_MODE_ENABLE: "false"
   PLAN_REFRESH: "false"
 
 jobs:
@@ -70,8 +69,7 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_enable_k8s_resources=${{ env.PLAN_ENABLE_K8S_RESOURCES }} \
-          TF_VAR_enable_cert_validation_records=${{ env.PLAN_ENABLE_CERT_VALIDATION_RECORDS }} \
+          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }} \
           tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
 
       - name: tofu show json
@@ -134,8 +132,7 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_enable_k8s_resources=false \
-          TF_VAR_enable_cert_validation_records=false \
+          TF_VAR_is_test_mode_enabled=true \
           tofu test -test-directory=../tests
 
   infracost:

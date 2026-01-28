@@ -7,17 +7,17 @@
 ###############################################
 
 data "aws_eks_cluster" "alloy" {
-  count = var.enable_k8s_resources ? 1 : 0
+  count = var.is_test_mode_enabled ? 0 : 1
   name  = aws_eks_cluster.monitoring.name
 }
 
 data "aws_eks_cluster_auth" "alloy" {
-  count = var.enable_k8s_resources ? 1 : 0
+  count = var.is_test_mode_enabled ? 0 : 1
   name  = aws_eks_cluster.monitoring.name
 }
 
 locals {
-  eks_ca_data = var.enable_k8s_resources ? data.aws_eks_cluster.alloy[0].certificate_authority[0].data : null
+  eks_ca_data = var.is_test_mode_enabled ? null : data.aws_eks_cluster.alloy[0].certificate_authority[0].data
 }
 
 #######################################################
@@ -25,7 +25,7 @@ locals {
 #######################################################
 
 resource "kubernetes_namespace" "grafana_cloud" {
-  count = var.enable_k8s_resources ? 1 : 0
+  count = var.is_test_mode_enabled ? 0 : 1
   metadata { name = "grafana-cloud" }
 }
 
@@ -35,7 +35,7 @@ data "aws_secretsmanager_secret_version" "grafana_cloud_alloy" {
 }
 
 resource "kubernetes_secret" "grafana_cloud_alloy" {
-  count = var.enable_k8s_resources ? 1 : 0
+  count = var.is_test_mode_enabled ? 0 : 1
   metadata {
     name      = "grafana-cloud-alloy"
     namespace = kubernetes_namespace.grafana_cloud[0].metadata[0].name
@@ -50,7 +50,7 @@ resource "kubernetes_secret" "grafana_cloud_alloy" {
 }
 
 resource "helm_release" "grafana_alloy" {
-  count     = var.enable_k8s_resources ? 1 : 0
+  count     = var.is_test_mode_enabled ? 0 : 1
   name      = "hywater-helm-grafana"
   namespace = kubernetes_namespace.grafana_cloud[0].metadata[0].name
 
@@ -159,7 +159,7 @@ YAML
 }
 
 locals {
-  # Test-only certificate used when enable_k8s_resources is false to satisfy provider config.
+  # Test-only certificate used when test mode is enabled to satisfy provider config.
   eks_test_ca = <<-PEM
 -----BEGIN CERTIFICATE-----
 MIIBaDCCAQ6gAwIBAgIRAOgLq0qj2e6l7vUeZQ5sZ5kwCgYIKoZIzj0EAwIwEDEO

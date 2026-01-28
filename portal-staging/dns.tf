@@ -42,7 +42,7 @@ resource "aws_acm_certificate" "cloudfront" {
 }
 
 locals {
-  cert_validation_records = var.enable_cert_validation_records ? concat(
+  cert_validation_records = var.is_test_mode_enabled ? [] : concat(
     [for idx, dvo in tolist(aws_acm_certificate.main.domain_validation_options) : {
       key    = "${dvo.domain_name}-main"
       name   = dvo.resource_record_name
@@ -55,7 +55,7 @@ locals {
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
     }]
-  ) : []
+  )
 }
 
 resource "aws_route53_record" "cert_validation" {
