@@ -198,11 +198,11 @@ jobs:
           {
             echo "## Infra Cost Analysis"
             echo ""
-            cat /tmp/infracost.raw.md
-            echo ""
             if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
             if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
             if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
+            echo ""
+            cat /tmp/infracost.raw.md
           } > /tmp/infracost.md
 
       # -------------------------
