@@ -103,6 +103,37 @@ jobs:
           header: tofu-plan-${{ matrix.env }}
           path: /tmp/plan_summary_${{ matrix.env }}.md
 
+      - name: Install Conftest
+        run: |
+          set -euo pipefail
+          VERSION=0.57.0
+          curl -sSL -o conftest.tar.gz "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz"
+          tar -xzf conftest.tar.gz conftest
+          sudo mv conftest /usr/local/bin/
+          conftest --version
+
+      - name: Conftest policy checks
+        run: |
+          set -euo pipefail
+          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            ${{ matrix.tf_dir }}/tfplan
+            ${{ matrix.tf_dir }}/tfplan.json
+          if-no-files-found: error
+
+      - name: tofu test
+        working-directory: ${{ matrix.tf_dir }}
+        run: |
+          set -euo pipefail
+          TF_VAR_enable_k8s_resources=false \
+          TF_VAR_enable_cert_validation_records=false \
+          tofu test -test-directory=../tests
+
   infracost:
     name: Infracost Diff (PR)
     runs-on: ubuntu-latest
@@ -151,38 +182,10 @@ jobs:
       # Post PR comment
       # -------------------------
       - name: Post Infracost comment
-        uses: infracost/actions/comment@v2
-        with:
-          path: /tmp/infracost.json
-          behavior: update
-    
-      - name: Install Conftest
         run: |
-          set -euo pipefail
-          VERSION=0.57.0
-          curl -sSL -o conftest.tar.gz "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz"
-          tar -xzf conftest.tar.gz conftest
-          sudo mv conftest /usr/local/bin/
-          conftest --version
-
-      - name: Conftest policy checks
-        run: |
-          set -euo pipefail
-          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
-
-      - name: Upload plan artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ matrix.env }}
-          path: |
-            ${{ matrix.tf_dir }}/tfplan
-            ${{ matrix.tf_dir }}/tfplan.json
-          if-no-files-found: error
-
-      - name: tofu test
-        working-directory: ${{ matrix.tf_dir }}
-        run: |
-          set -euo pipefail
-          TF_VAR_enable_k8s_resources=false \
-          TF_VAR_enable_cert_validation_records=false \
-          tofu test -test-directory=../tests
+          infracost comment github \
+            --path=/tmp/infracost.json \
+            --repo=$GITHUB_REPOSITORY \
+            --pull-request=${{ github.event.pull_request.number }} \
+            --github-token=${{ github.token }} \
+            --behavior=update
