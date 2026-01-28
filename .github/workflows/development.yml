@@ -33,6 +33,10 @@ jobs:
             tf_dir: portal-staging
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+          - env: production
+            tf_dir: portal-production
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_PRODUCTION_ARN }}
+            policy_data: policy/data/production.json
 
     steps:
       - name: Checkout
