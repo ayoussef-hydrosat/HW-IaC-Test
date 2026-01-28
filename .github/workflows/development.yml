@@ -178,14 +178,19 @@ jobs:
             --format json \
             --out-file /tmp/infracost.json
 
+      - name: Build Infracost PR comment
+        run: |
+          infracost diff \
+            --path portal-staging \
+            --compare-to /tmp/infracost-base.json \
+            --format github-comment \
+            --out-file /tmp/infracost.md
+
       # -------------------------
       # Post PR comment
       # -------------------------
       - name: Post Infracost comment
-        run: |
-          infracost comment github \
-            --path=/tmp/infracost.json \
-            --repo=$GITHUB_REPOSITORY \
-            --pull-request=${{ github.event.pull_request.number }} \
-            --github-token=${{ github.token }} \
-            --behavior=update
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: infracost
+          path: /tmp/infracost.md
