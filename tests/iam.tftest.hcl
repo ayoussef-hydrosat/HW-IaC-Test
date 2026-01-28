@@ -2,8 +2,7 @@ run "iam_github_oidc_sub_condition" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 

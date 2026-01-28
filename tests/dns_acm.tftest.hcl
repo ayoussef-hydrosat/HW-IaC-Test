@@ -2,8 +2,7 @@ run "acm_dns_validation" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
   assert {
@@ -21,8 +20,7 @@ run "route53_records" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
   assert {

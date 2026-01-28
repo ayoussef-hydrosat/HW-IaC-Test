@@ -1,4 +1,4 @@
-name: Infra PR - Plan, Test, Cost Analysis
+name: Infra PR - Plan, Test, Analyze
 
 on:
   pull_request:
@@ -17,8 +17,7 @@ concurrency:
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   TOFU_VERSION: "1.11.0"
-  PLAN_ENABLE_K8S_RESOURCES: "false"
-  PLAN_ENABLE_CERT_VALIDATION_RECORDS: "false"
+  PLAN_TEST_MODE_ENABLE: "false"
   PLAN_REFRESH: "false"
 
 jobs:
@@ -66,13 +65,41 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_enable_k8s_resources=${{ env.PLAN_ENABLE_K8S_RESOURCES }} \
-          TF_VAR_enable_cert_validation_records=${{ env.PLAN_ENABLE_CERT_VALIDATION_RECORDS }} \
+          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }} \
           tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
 
       - name: tofu show json
         working-directory: ${{ matrix.tf_dir }}
         run: tofu show -json tfplan > tfplan.json
+
+      - name: Create plan summary markdown
+        id: summary
+        run: |
+          set -euo pipefail
+          f="${{ matrix.tf_dir }}/tfplan.json"
+          adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
+          changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
+          destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
+
+          {
+            echo "## Plan Summary (${{ matrix.env }})"
+            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}"
+            echo ""
+            echo "### Adds"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "### Changes"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("update")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "### Destroys"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+          } > /tmp/plan_summary_${{ matrix.env }}.md
+
+      - name: Post sticky PR comment (plan summary)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: tofu-plan-${{ matrix.env }}
+          path: /tmp/plan_summary_${{ matrix.env }}.md
 
       - name: Install Conftest
         run: |
@@ -101,40 +128,85 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_enable_k8s_resources=false \
-          TF_VAR_enable_cert_validation_records=false \
+          TF_VAR_is_test_mode_enabled=true \
           tofu test -test-directory=../tests
 
-      - name: Create plan summary markdown
-        id: summary
+  infracost:
+    name: Infracost Diff (PR)
+    runs-on: ubuntu-latest
+    needs: [plan_policy]
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      # -------------------------
+      # Generate baseline (main)
+      # -------------------------
+      - name: Checkout base branch
         run: |
-          set -euo pipefail
-          f="${{ matrix.tf_dir }}/tfplan.json"
-          adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
-          changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
-          destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
+          git fetch origin ${{ github.base_ref }}
+          git checkout origin/${{ github.base_ref }}
 
+      - name: Infracost baseline (staging)
+        run: |
+          infracost breakdown \
+            --path portal-staging \
+            --format json \
+            --out-file /tmp/infracost-base.json
+
+      # -------------------------
+      # Generate PR cost
+      # -------------------------
+      - name: Checkout PR branch again
+        run: |
+          git checkout -
+
+      - name: Infracost current (staging)
+        run: |
+          infracost breakdown \
+            --path portal-staging \
+            --format json \
+            --out-file /tmp/infracost-current.json
+
+      - name: Infracost diff (staging)
+        run: |
+          infracost diff \
+            --path portal-staging \
+            --compare-to /tmp/infracost-base.json \
+            --format json \
+            --out-file /tmp/infracost.json
+
+      - name: Build Infracost PR comment
+        run: |
+          infracost diff \
+            --path portal-staging \
+            --compare-to /tmp/infracost-base.json \
+            --format diff \
+            --out-file /tmp/infracost.raw.md
+          baseline_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-base.json)
+          current_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-current.json)
+          cost_diff=$(jq -r '(.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) | tostring' /tmp/infracost.json)
           {
-            echo "## OpenTofu plan summary (${{ matrix.env }})"
+            echo "## Infra Cost Analysis"
             echo ""
-            echo "- **Adds:** ${adds}"
-            echo "- **Changes:** ${changes}"
-            echo "- **Destroys:** ${destroys}"
+            if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
+            if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
+            if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
             echo ""
-            echo "### Adds"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
-            echo ""
-            echo "### Changes"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("update")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
-            echo ""
-            echo "### Destroys"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
-            echo ""
-            echo "Artifacts: \`tfplan-${{ matrix.env }}\` (includes tfplan + tfplan.json)"
-          } > /tmp/plan_summary_${{ matrix.env }}.md
+            cat /tmp/infracost.raw.md
+          } > /tmp/infracost.md
 
-      - name: Post sticky PR comment (plan summary)
+      # -------------------------
+      # Post PR comment
+      # -------------------------
+      - name: Post Infracost comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
-          header: tofu-plan-${{ matrix.env }}
-          path: /tmp/plan_summary_${{ matrix.env }}.md
+          header: infracost
+          path: /tmp/infracost.md

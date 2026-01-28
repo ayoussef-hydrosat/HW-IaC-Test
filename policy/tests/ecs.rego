@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Require ECR repositories to enable scan on push and encryption.

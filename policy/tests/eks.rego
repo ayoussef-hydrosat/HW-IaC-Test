@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Require Helm releases to pin a chart version.

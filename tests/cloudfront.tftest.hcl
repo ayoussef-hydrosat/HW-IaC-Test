@@ -2,8 +2,7 @@ run "cloudfront_https_policy" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -22,8 +21,7 @@ run "cloudfront_oac_required" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 

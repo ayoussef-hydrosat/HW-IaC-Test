@@ -2,8 +2,7 @@ run "rds_security" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -37,8 +36,7 @@ run "bastion_requirements" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 

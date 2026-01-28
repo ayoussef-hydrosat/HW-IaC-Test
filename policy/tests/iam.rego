@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Deny IAM policies with wildcard actions.

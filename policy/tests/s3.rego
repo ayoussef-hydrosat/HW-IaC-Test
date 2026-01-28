@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Require bucket policies to be defined.

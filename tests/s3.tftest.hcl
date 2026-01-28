@@ -2,8 +2,7 @@ run "s3_public_access_block" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -46,8 +45,7 @@ run "s3_acl_and_encryption" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -75,8 +73,7 @@ run "s3_versioning_and_lambda_bucket" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 

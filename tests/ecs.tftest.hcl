@@ -2,8 +2,7 @@ run "ecs_task_sizing" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -37,8 +36,7 @@ run "ecs_firelens" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 
@@ -52,8 +50,7 @@ run "ecs_service_scaling" {
   command = plan
 
   variables {
-    enable_cert_validation_records = false
-    enable_k8s_resources           = false
+    is_test_mode_enabled = true
   }
 
 

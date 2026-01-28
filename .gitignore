@@ -1,6 +1,5 @@
 **/.terraform/
 .idea/
-*.tfvars
 **/tfplan.json
 lambdas/node_modules/
 lambdas/dist/
