@@ -97,6 +97,12 @@ jobs:
             jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
           } > /tmp/plan_summary_${{ matrix.env }}.md
 
+      - name: Post sticky PR comment (plan summary)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: tofu-plan-${{ matrix.env }}
+          path: /tmp/plan_summary_${{ matrix.env }}.md
+    
       - name: Install Conftest
         run: |
           set -euo pipefail
@@ -109,33 +115,7 @@ jobs:
       - name: Conftest policy checks
         run: |
           set -euo pipefail
-          out_file="/tmp/conftest_${{ matrix.env }}.out"
-          summary_file="/tmp/plan_summary_${{ matrix.env }}.md"
-          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json" 2>&1 | tee "$out_file"
-          python - "$out_file" "$summary_file" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-          
-          text = Path(sys.argv[1]).read_text()
-          summary_path = Path(sys.argv[2])
-          m = re.search(
-              r"(\\d+)\\s+tests,\\s+(\\d+)\\s+passed,\\s+(\\d+)\\s+warnings,\\s+(\\d+)\\s+failures,\\s+(\\d+)\\s+exceptions,\\s+(\\d+)\\s+skipped",
-              text,
-          )
-          if m:
-              tests, passed, warnings, failures, exceptions, skipped = m.groups()
-              summary = (
-                  f"{tests} tests, {passed} passed, {warnings} warnings, "
-                  f"{failures} failures, {exceptions} exceptions, {skipped} skipped"
-              )
-          else:
-              summary = "unavailable"
-
-          with summary_path.open("a") as fh:
-              fh.write("\\n### Conftest Policies (" + "${{ matrix.env }}" + ")\\n")
-              fh.write(summary + "\\n")
-          PY
+          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
 
       - name: Upload plan artifacts
         uses: actions/upload-artifact@v4
@@ -150,32 +130,6 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          out_file="/tmp/tofu_test_${{ matrix.env }}.out"
-          summary_file="/tmp/plan_summary_${{ matrix.env }}.md"
           TF_VAR_enable_k8s_resources=false \
           TF_VAR_enable_cert_validation_records=false \
-          tofu test -test-directory=../tests 2>&1 | tee "$out_file"
-          python - "$out_file" "$summary_file" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-          
-          text = Path(sys.argv[1]).read_text()
-          summary_path = Path(sys.argv[2])
-          m = re.search(r"Success!\\s+(\\d+)\\s+passed,\\s+(\\d+)\\s+failed\\.", text)
-          if m:
-              passed, failed = m.groups()
-              summary = f"Success! {passed} passed, {failed} failed."
-          else:
-              summary = "unavailable"
-
-          with summary_path.open("a") as fh:
-              fh.write("\\n### Tofu tests (" + "${{ matrix.env }}" + ")\\n")
-              fh.write(summary + "\\n")
-          PY
-
-      - name: Post sticky PR comment (plan summary)
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: tofu-plan-${{ matrix.env }}
-          path: /tmp/plan_summary_${{ matrix.env }}.md
+          tofu test -test-directory=../tests
