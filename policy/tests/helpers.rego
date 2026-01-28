@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 is_public_cidr(cidr) if { cidr == "0.0.0.0/0" }
 is_public_cidr(cidr) if { cidr == "::/0" }

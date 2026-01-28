@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Require Cognito invoke permissions for Lambda.

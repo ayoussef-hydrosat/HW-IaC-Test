@@ -1,4 +1,5 @@
 package terraform
+import rego.v1
 
 # Policy
 # Require ACM certificate validation records to be present when set.
