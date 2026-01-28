@@ -170,6 +170,13 @@ jobs:
         run: |
           git checkout -
 
+      - name: Infracost current (staging)
+        run: |
+          infracost breakdown \
+            --path portal-staging \
+            --format json \
+            --out-file /tmp/infracost-current.json
+
       - name: Infracost diff (staging)
         run: |
           infracost diff \
@@ -184,7 +191,19 @@ jobs:
             --path portal-staging \
             --compare-to /tmp/infracost-base.json \
             --format diff \
-            --out-file /tmp/infracost.md
+            --out-file /tmp/infracost.raw.md
+          baseline_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-base.json)
+          current_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-current.json)
+          cost_diff=$(jq -r '(.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) | tostring' /tmp/infracost.json)
+          {
+            echo "## Infra Cost Analysis"
+            echo ""
+            cat /tmp/infracost.raw.md
+            echo ""
+            if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
+            if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
+            if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
+          } > /tmp/infracost.md
 
       # -------------------------
       # Post PR comment
