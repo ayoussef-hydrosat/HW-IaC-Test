@@ -183,7 +183,7 @@ jobs:
           infracost diff \
             --path portal-staging \
             --compare-to /tmp/infracost-base.json \
-            --format github-comment \
+            --format diff \
             --out-file /tmp/infracost.md
 
       # -------------------------
