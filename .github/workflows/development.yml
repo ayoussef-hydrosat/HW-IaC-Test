@@ -84,9 +84,31 @@ jobs:
           conftest --version
 
       - name: Conftest policy checks
+        id: conftest
         run: |
           set -euo pipefail
-          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
+          out_file="/tmp/conftest_${{ matrix.env }}.out"
+          conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json" | tee "$out_file"
+          python - "$out_file" <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import sys
+          from pathlib import Path
+          
+          text = Path(sys.argv[1]).read_text()
+          m = re.search(
+              r"(\\d+)\\s+tests,\\s+(\\d+)\\s+passed,\\s+(\\d+)\\s+warnings,\\s+(\\d+)\\s+failures,\\s+(\\d+)\\s+exceptions,\\s+(\\d+)\\s+skipped",
+              text,
+          )
+          if not m:
+              print("conftest_summary=unavailable")
+              sys.exit(0)
+          
+          tests, passed, warnings, failures, exceptions, skipped = m.groups()
+          print(f\"conftest_tests={tests}\")
+          print(f\"conftest_passed={passed}\")
+          print(f\"conftest_failed={failures}\")
+          print(f\"conftest_summary={tests} tests, {passed} passed, {warnings} warnings, {failures} failures, {exceptions} exceptions, {skipped} skipped\")
+          PY
 
       - name: Upload plan artifacts
         uses: actions/upload-artifact@v4
@@ -98,28 +120,47 @@ jobs:
           if-no-files-found: error
 
       - name: tofu test
+        id: tofu_test
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
+          out_file="/tmp/tofu_test_${{ matrix.env }}.out"
           TF_VAR_enable_k8s_resources=false \
           TF_VAR_enable_cert_validation_records=false \
-          tofu test -test-directory=../tests
+          tofu test -test-directory=../tests | tee "$out_file"
+          python - "$out_file" <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import sys
+          from pathlib import Path
+          
+          text = Path(sys.argv[1]).read_text()
+          m = re.search(r"Success!\\s+(\\d+)\\s+passed,\\s+(\\d+)\\s+failed\\.", text)
+          if not m:
+              print("tofu_summary=unavailable")
+              sys.exit(0)
+          
+          passed, failed = m.groups()
+          print(f\"tofu_passed={passed}\")
+          print(f\"tofu_failed={failed}\")
+          print(f\"tofu_summary=Success! {passed} passed, {failed} failed.\")
+          PY
 
       - name: Create plan summary markdown
         id: summary
         run: |
           set -euo pipefail
           f="${{ matrix.tf_dir }}/tfplan.json"
+          conftest_summary="${{ steps.conftest.outputs.conftest_summary }}"
+          tofu_summary="${{ steps.tofu_test.outputs.tofu_summary }}"
+          if [ -z "$conftest_summary" ]; then conftest_summary="unavailable"; fi
+          if [ -z "$tofu_summary" ]; then tofu_summary="unavailable"; fi
           adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
           changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
           destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
 
           {
-            echo "## OpenTofu plan summary (${{ matrix.env }})"
-            echo ""
-            echo "- **Adds:** ${adds}"
-            echo "- **Changes:** ${changes}"
-            echo "- **Destroys:** ${destroys}"
+            echo "## Plan Summary (${{ matrix.env }})"
+            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}"
             echo ""
             echo "### Adds"
             jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
@@ -129,6 +170,12 @@ jobs:
             echo ""
             echo "### Destroys"
             jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            echo ""
+            echo "### Conftest Policies (${{ matrix.env }})"
+            echo "${conftest_summary}"
+            echo ""
+            echo "### Tofu tests (${{ matrix.env }})"
+            echo "${tofu_summary}"
             echo ""
             echo "Artifacts: \`tfplan-${{ matrix.env }}\` (includes tfplan + tfplan.json)"
           } > /tmp/plan_summary_${{ matrix.env }}.md
