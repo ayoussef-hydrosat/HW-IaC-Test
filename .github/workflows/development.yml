@@ -50,7 +50,6 @@ jobs:
           role-session-name: pr-check-${{ matrix.env }}-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
-       # ---- CACHING START ----
       - name: Configure tofu/terraform plugin cache
         shell: bash
         run: |
@@ -69,7 +68,6 @@ jobs:
           key: ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', matrix.tf_dir)) }}
           restore-keys: |
             ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-
-      # ---- CACHING END ----    
 
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
