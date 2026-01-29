@@ -1,4 +1,4 @@
-name: Infra PR - Plan, Test, Analyze
+name: Infra PR
 
 on:
   pull_request:
@@ -21,6 +21,7 @@ env:
   PLAN_REFRESH: "false"
 
 jobs:
+  # Basic linting & validation only. Produces no artifacts.  
   infra_check:
     name: Infra Check (${{ matrix.env }})
     runs-on: ubuntu-latest
@@ -49,6 +50,27 @@ jobs:
           role-session-name: pr-check-${{ matrix.env }}-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
+       # ---- CACHING START ----
+      - name: Configure tofu/terraform plugin cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+          cat > "$HOME/.terraformrc" <<'EOF'
+          plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"
+          EOF
+
+      - name: Cache tofu plugins + modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugin-cache
+            ${{ matrix.tf_dir }}/.terraform
+          key: ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', matrix.tf_dir)) }}
+          restore-keys: |
+            ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-
+      # ---- CACHING END ----    
+
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
         run: tofu init -input=false
@@ -61,6 +83,7 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: tofu validate
 
+  # Generate plan + PR summary and upload tfplan artifacts.      
   infra_plan:
     name: Infra Plan (${{ matrix.env }})
     runs-on: ubuntu-latest
@@ -155,6 +178,7 @@ jobs:
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
 
+    # Purpose: Use plan artifacts for Conftest, then run tofu tests in test mode.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -199,6 +223,7 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
+          # Test mode disables resources that require apply-time values.
           TF_VAR_is_test_mode_enabled=true           tofu test -test-directory=../tests
 
   infra_analysis:
@@ -212,6 +237,7 @@ jobs:
           - env: staging
             tf_dir: portal-staging
 
+    # Purpose: Compare base vs PR costs and post an env-specific Infracost comment.
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
