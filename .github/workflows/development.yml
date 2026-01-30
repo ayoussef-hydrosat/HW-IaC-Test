@@ -33,6 +33,10 @@ jobs:
             tf_dir: portal-staging
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+          - env: production
+            tf_dir: portal-production
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_PRODUCTION_ARN }}
+            policy_data: policy/data/production.json
 
     steps:
       - name: Checkout
@@ -49,25 +53,6 @@ jobs:
           role-to-assume: ${{ matrix.role_to_assume }}
           role-session-name: pr-check-${{ matrix.env }}-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Configure tofu/terraform plugin cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-          cat > "$HOME/.terraformrc" <<'EOF'
-          plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"
-          EOF
-
-      - name: Cache tofu plugins + modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.terraform.d/plugin-cache
-            ${{ matrix.tf_dir }}/.terraform
-          key: ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', matrix.tf_dir)) }}
-          restore-keys: |
-            ${{ runner.os }}-tofu-${{ env.TOFU_VERSION }}-
 
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
@@ -94,6 +79,10 @@ jobs:
             tf_dir: portal-staging
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+          - env: production
+            tf_dir: portal-production
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_PRODUCTION_ARN }}
+            policy_data: policy/data/production.json
 
     steps:
       - name: Checkout
@@ -133,16 +122,30 @@ jobs:
           adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
           changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
           destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
+          replaces=$(jq '[.resource_changes[]? | select(.change.actions | index("delete")) | select(.change.actions | index("create"))] | length' "$f")
 
           {
             echo "## Plan Summary (${{ matrix.env }})"
-            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}"
+            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}, Replaces: ${replaces}"
             echo ""
             echo "### Adds"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | ("  - " + .type + " (" + .address + ")")] | if length == 0 then "  (none)" else .[] end' "$f"
             echo ""
             echo "### Changes"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("update")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            jq -r '
+              def changed_keys(before; after):
+                (before // {} | keys_unsorted) as $b
+                | (after // {} | keys_unsorted) as $a
+                | ($b + $a | unique) as $keys
+                | [ $keys[] | select((before[.] != after[.])) ];
+              [ .resource_changes[]?
+                | select(.change.actions | index("update"))
+                | . as $rc
+                | (changed_keys($rc.change.before; $rc.change.after)) as $keys
+                | "  - " + $rc.address + (if ($keys|length) > 0 then " (changed: " + ($keys|join(", ")) + ")" else " (changed: unknown)" end)
+              ]
+              | if length == 0 then "  (none)" else .[] end
+            ' "$f"
             echo ""
             echo "### Destroys"
             jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
@@ -175,8 +178,12 @@ jobs:
             tf_dir: portal-staging
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+          - env: production
+            tf_dir: portal-production
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_PRODUCTION_ARN }}
+            policy_data: policy/data/production.json
 
-    # Purpose: Use plan artifacts for Conftest, then run tofu tests in test mode.
+    # Use plan artifacts for Conftest policies, then run tofu tests in test mode.
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -234,8 +241,10 @@ jobs:
         include:
           - env: staging
             tf_dir: portal-staging
+          - env: production
+            tf_dir: portal-production
 
-    # Purpose: Compare base vs PR costs and post an env-specific Infracost comment.
+    # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -245,9 +254,6 @@ jobs:
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
-      # -------------------------
-      # Generate baseline (main)
-      # -------------------------
       - name: Checkout base branch
         run: |
           git fetch origin ${{ github.base_ref }}
@@ -257,9 +263,6 @@ jobs:
         run: |
           infracost breakdown             --path ${{ matrix.tf_dir }}             --format json             --out-file /tmp/infracost-base.json
 
-      # -------------------------
-      # Generate PR cost
-      # -------------------------
       - name: Checkout PR branch again
         run: |
           git checkout -
@@ -288,9 +291,6 @@ jobs:
             cat /tmp/infracost.raw.md
           } > /tmp/infracost.md
 
-      # -------------------------
-      # Post PR comment
-      # -------------------------
       - name: Post Infracost comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
