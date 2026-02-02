@@ -315,14 +315,20 @@ jobs:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
+            (.totalMonthlyCost // .total_monthly_cost // empty) as $t
+            | if $t != null then ($t | to_num)
+              else ([ .projects[]? | (.summary.totalMonthlyCost // .summary.total_monthly_cost // 0) | to_num ] | add)
+              end
           ' /tmp/infracost-base.json)
           current_total=$(jq -r '
             def to_num:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
+            (.totalMonthlyCost // .total_monthly_cost // empty) as $t
+            | if $t != null then ($t | to_num)
+              else ([ .projects[]? | (.summary.totalMonthlyCost // .summary.total_monthly_cost // 0) | to_num ] | add)
+              end
           ' /tmp/infracost-current.json)
           cost_diff=$(jq -r '
             def to_num:
