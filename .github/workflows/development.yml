@@ -265,7 +265,13 @@ jobs:
 
       - name: Infracost diff (${{ matrix.env }})
         run: |
-          infracost diff             --path ${{ matrix.tf_dir }}             --compare-to /tmp/infracost-base.json             --format json             --out-file /tmp/infracost.json
+          infracost diff \
+            --path ${{ matrix.tf_dir }} \
+            --compare-to /tmp/infracost-base.json \
+            --terraform-var-file env/${{ matrix.env }}/terraform.tfvars \
+            --terraform-var is_test_mode_enabled=false \
+            --format json \
+            --out-file /tmp/infracost.json
 
       - name: Build Infracost PR comment
         run: |
