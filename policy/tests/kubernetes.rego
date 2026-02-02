@@ -4,22 +4,22 @@ import rego.v1
 # Policy
 # Require Kubernetes namespace name.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "kubernetes_namespace"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "kubernetes_namespace"
+  after := resource.change.after
   after != null
   after.metadata.name == ""
-  msg := sprintf("Kubernetes namespace must have a name: %s", [rc.address])
+  msg := sprintf("Kubernetes namespace must have a name: %s", [resource.address])
 }
 
 # Require Kubernetes secrets to have data.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "kubernetes_secret"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "kubernetes_secret"
+  after := resource.change.after
   after != null
   after.data == null
-  msg := sprintf("Kubernetes secret must include data: %s", [rc.address])
+  msg := sprintf("Kubernetes secret must include data: %s", [resource.address])
 }
 
 # Tests

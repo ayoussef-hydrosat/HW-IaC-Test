@@ -1,5 +1,16 @@
 resource "aws_route53_zone" "main" {
   name = local.domain_name
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  tags = {
+    Name        = "${local.project_name}-zone"
+    Environment = local.environment
+    Project     = local.project_name
+    ManagedBy   = "terraform"
+  }
 }
 
 resource "aws_route53_record" "api" {
@@ -89,6 +100,10 @@ resource "aws_route53_record" "bastion" {
   type    = "A"
   ttl     = "300"
   records = [aws_instance.bastion.public_ip]
+
+  lifecycle {
+    ignore_changes = [records]
+  }
 }
 
 resource "aws_route53_record" "frontend" {
@@ -132,6 +147,19 @@ output "nameservers" {
   description = "Nameservers for the subdomain. Add these to Cloudflare."
 }
 
+output "zone_id" {
+  value       = aws_route53_zone.main.zone_id
+  description = "Route53 zone ID for future reference."
+}
+
+output "certificate_arns" {
+  value = {
+    main       = aws_acm_certificate.main.arn
+    cloudfront = aws_acm_certificate.cloudfront.arn
+  }
+  description = "ACM certificate ARNs for future reference."
+}
+
 resource "aws_route53_record" "smtp_mx_record" {
   name = "${local.domain_name}."
   type = "MX"
@@ -142,7 +170,6 @@ resource "aws_route53_record" "smtp_mx_record" {
   zone_id = aws_route53_zone.main.zone_id
 }
 
-
 resource "aws_route53_record" "dmarc_record" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "_dmarc.${local.domain_name}"
@@ -150,6 +177,6 @@ resource "aws_route53_record" "dmarc_record" {
   ttl     = 300
 
   records = [
-    "v=DMARC1;p=quarantine;rua=mailto:my_dmarc_report@irriwatch.hydrosat.com"
+    "v=DMARC1; p=none;"
   ]
 }

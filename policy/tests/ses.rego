@@ -4,12 +4,12 @@ import rego.v1
 # Policy
 # Require SES identity policies to be defined.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_ses_identity_policy"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_ses_identity_policy"
+  after := resource.change.after
   after != null
   after.policy == ""
-  msg := sprintf("SES identity policy must be set: %s", [rc.address])
+  msg := sprintf("SES identity policy must be set: %s", [resource.address])
 }
 
 # Tests

@@ -30,9 +30,11 @@ jobs:
       matrix:
         include:
           - env: staging
-            tf_dir: portal-staging
+            tf_dir: resources
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+            tf_vars: env/staging/terraform.tfvars
+            tf_backend: env/staging/backend.hcl
 
     steps:
       - name: Checkout
@@ -52,11 +54,10 @@ jobs:
 
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
-        run: tofu init -input=false
+        run: tofu init -input=false -reconfigure -backend-config=../${{ matrix.tf_backend }}
 
       - name: tofu fmt check
-        working-directory: ${{ matrix.tf_dir }}
-        run: tofu fmt -check -recursive
+        run: tofu fmt -check -recursive resources
 
       - name: tofu validate
         working-directory: ${{ matrix.tf_dir }}
@@ -72,9 +73,11 @@ jobs:
       matrix:
         include:
           - env: staging
-            tf_dir: portal-staging
+            tf_dir: resources
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+            tf_vars: env/staging/terraform.tfvars
+            tf_backend: env/staging/backend.hcl
 
     steps:
       - name: Checkout
@@ -94,13 +97,13 @@ jobs:
 
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
-        run: tofu init -input=false
+        run: tofu init -input=false -reconfigure -backend-config=../${{ matrix.tf_backend }}
 
       - name: tofu plan
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }}           tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
+          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }}           tofu plan -input=false -var-file=../${{ matrix.tf_vars }} -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
 
       - name: tofu show json
         working-directory: ${{ matrix.tf_dir }}
@@ -134,7 +137,7 @@ jobs:
                 | select(.change.actions | index("update"))
                 | . as $rc
                 | (changed_keys($rc.change.before; $rc.change.after)) as $keys
-                | "  - " + $rc.address + (if ($keys|length) > 0 then " (changed: " + ($keys|join(", ")) + ")" else " (changed: unknown)" end)
+                | "  - " + $rc.address + (if ($keys|length) > 0 then " (change: " + ($keys|join(", ")) + ")" else " (change: unknown)" end)
               ]
               | if length == 0 then "  (none)" else .[] end
             ' "$f"
@@ -167,9 +170,11 @@ jobs:
       matrix:
         include:
           - env: staging
-            tf_dir: portal-staging
+            tf_dir: resources
             role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
             policy_data: policy/data/staging.json
+            tf_vars: env/staging/terraform.tfvars
+            tf_backend: env/staging/backend.hcl
 
     # Use plan artifacts for Conftest policies, then run tofu tests in test mode.
     steps:
@@ -210,14 +215,14 @@ jobs:
 
       - name: tofu init
         working-directory: ${{ matrix.tf_dir }}
-        run: tofu init -input=false
+        run: tofu init -input=false -reconfigure -backend-config=../${{ matrix.tf_backend }}
 
       - name: tofu test
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
           # Test mode disables resources that require apply-time values.
-          TF_VAR_is_test_mode_enabled=true           tofu test -test-directory=../tests
+          TF_VAR_is_test_mode_enabled=true           tofu test -test-directory=../tests -var-file=../${{ matrix.tf_vars }}
 
   infra_analysis:
     name: Infra Analysis (${{ matrix.env }})
@@ -228,7 +233,11 @@ jobs:
       matrix:
         include:
           - env: staging
-            tf_dir: portal-staging
+            tf_dir: resources
+            tf_vars: env/staging/terraform.tfvars
+          - env: production
+            tf_dir: resources
+            tf_vars: env/production/terraform.tfvars
 
     # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
@@ -247,7 +256,7 @@ jobs:
 
       - name: Infracost baseline (${{ matrix.env }})
         run: |
-          infracost breakdown             --path ${{ matrix.tf_dir }}             --format json             --out-file /tmp/infracost-base.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-base.json
 
       - name: Checkout PR branch again
         run: |
@@ -255,7 +264,7 @@ jobs:
 
       - name: Infracost current (${{ matrix.env }})
         run: |
-          infracost breakdown             --path ${{ matrix.tf_dir }}             --format json             --out-file /tmp/infracost-current.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-current.json
 
       - name: Infracost diff (${{ matrix.env }})
         run: |
@@ -263,18 +272,38 @@ jobs:
 
       - name: Build Infracost PR comment
         run: |
-          infracost diff             --path ${{ matrix.tf_dir }}             --compare-to /tmp/infracost-base.json             --format diff             --out-file /tmp/infracost.raw.md
-          baseline_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-base.json)
-          current_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-current.json)
-          cost_diff=$(jq -r '(.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) | tostring' /tmp/infracost.json)
+          baseline_total=$(jq -r '
+            def to_num:
+              if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
+              elif type=="number" then .
+              else 0 end;
+            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
+          ' /tmp/infracost-base.json)
+          current_total=$(jq -r '
+            def to_num:
+              if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
+              elif type=="number" then .
+              else 0 end;
+            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
+          ' /tmp/infracost-current.json)
+          cost_diff=$(jq -r '
+            def to_num:
+              if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
+              elif type=="number" then .
+              else 0 end;
+            def diff_total:
+              (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) as $d
+              | if ($d == null) or ($d == "") then
+                  ([ .projects[]? | (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // 0) | to_num ] | add)
+                else ($d | to_num) end;
+            diff_total
+          ' /tmp/infracost.json)
           {
-            echo "## Infra Cost Analysis"
+            echo "## Infra Cost Analysis (${{ matrix.env }})"
             echo ""
             if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
             if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
             if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
-            echo ""
-            cat /tmp/infracost.raw.md
           } > /tmp/infracost.md
 
       - name: Post Infracost comment

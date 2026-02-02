@@ -4,21 +4,21 @@ import rego.v1
 # Policy
 # Require ECR repositories to enable scan on push and encryption.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_ecr_repository"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_ecr_repository"
+  after := resource.change.after
   after != null
   not after.image_scanning_configuration.scan_on_push
-  msg := sprintf("ECR scan-on-push must be enabled: %s", [rc.address])
+  msg := sprintf("ECR scan-on-push must be enabled: %s", [resource.address])
 }
 
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_ecr_repository"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_ecr_repository"
+  after := resource.change.after
   after != null
   after.encryption_configuration.encryption_type == ""
-  msg := sprintf("ECR encryption must be enabled: %s", [rc.address])
+  msg := sprintf("ECR encryption must be enabled: %s", [resource.address])
 }
 
 autoscaling_minmax_invalid(after) if {

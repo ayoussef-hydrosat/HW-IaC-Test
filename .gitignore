@@ -3,3 +3,4 @@
 **/tfplan.json
 lambdas/node_modules/
 lambdas/dist/
+.DS_Store
