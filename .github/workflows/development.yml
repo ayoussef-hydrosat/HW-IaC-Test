@@ -1,4 +1,4 @@
-name: Infra PR - Plan, Test, Analyze
+name: Infra PR
 
 on:
   pull_request:
@@ -21,7 +21,8 @@ env:
   PLAN_REFRESH: "false"
 
 jobs:
-  plan_policy:
+  # Basic linting & validation only. Produces no artifacts.  
+  infra_check:
     name: Infra Check (${{ matrix.env }})
     runs-on: ubuntu-latest
     strategy:
@@ -42,9 +43,47 @@ jobs:
         with:
           tofu_version: ${{ env.TOFU_VERSION }}
 
+      - name: Configure AWS Credentials (OIDC) - plan role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.role_to_assume }}
+          role-session-name: pr-check-${{ matrix.env }}-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: tofu init
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu init -input=false
+
       - name: tofu fmt check
         working-directory: ${{ matrix.tf_dir }}
         run: tofu fmt -check -recursive
+
+      - name: tofu validate
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu validate
+
+  # Generate plan + PR summary and upload tfplan artifacts.      
+  infra_plan:
+    name: Infra Plan (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    needs: [infra_check]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: staging
+            tf_dir: portal-staging
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
+            policy_data: policy/data/staging.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
 
       - name: Configure AWS Credentials (OIDC) - plan role
         uses: aws-actions/configure-aws-credentials@v4
@@ -57,16 +96,11 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: tofu init -input=false
 
-      - name: tofu validate
-        working-directory: ${{ matrix.tf_dir }}
-        run: tofu validate
-
       - name: tofu plan
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }} \
-          tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
+          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }}           tofu plan -input=false -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
 
       - name: tofu show json
         working-directory: ${{ matrix.tf_dir }}
@@ -80,16 +114,30 @@ jobs:
           adds=$(jq '[.resource_changes[]? | select(.change.actions | index("create"))] | length' "$f")
           changes=$(jq '[.resource_changes[]? | select(.change.actions | index("update"))] | length' "$f")
           destroys=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' "$f")
+          replaces=$(jq '[.resource_changes[]? | select(.change.actions | index("delete")) | select(.change.actions | index("create"))] | length' "$f")
 
           {
             echo "## Plan Summary (${{ matrix.env }})"
-            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}"
+            echo "Adds: ${adds}, Changes: ${changes}, Destroys: ${destroys}, Replaces: ${replaces}"
             echo ""
             echo "### Adds"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            jq -r '[.resource_changes[]? | select(.change.actions | index("create")) | ("  - " + .type + " (" + .address + ")")] | if length == 0 then "  (none)" else .[] end' "$f"
             echo ""
             echo "### Changes"
-            jq -r '[.resource_changes[]? | select(.change.actions | index("update")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
+            jq -r '
+              def changed_keys(before; after):
+                (before // {} | keys_unsorted) as $b
+                | (after // {} | keys_unsorted) as $a
+                | ($b + $a | unique) as $keys
+                | [ $keys[] | select((before[.] != after[.])) ];
+              [ .resource_changes[]?
+                | select(.change.actions | index("update"))
+                | . as $rc
+                | (changed_keys($rc.change.before; $rc.change.after)) as $keys
+                | "  - " + $rc.address + (if ($keys|length) > 0 then " (changed: " + ($keys|join(", ")) + ")" else " (changed: unknown)" end)
+              ]
+              | if length == 0 then "  (none)" else .[] end
+            ' "$f"
             echo ""
             echo "### Destroys"
             jq -r '[.resource_changes[]? | select(.change.actions | index("delete")) | .address] | if length == 0 then "  (none)" else .[] | "  - " + . end' "$f"
@@ -100,6 +148,51 @@ jobs:
         with:
           header: tofu-plan-${{ matrix.env }}
           path: /tmp/plan_summary_${{ matrix.env }}.md
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            ${{ matrix.tf_dir }}/tfplan
+            ${{ matrix.tf_dir }}/tfplan.json
+          if-no-files-found: error
+
+  infra_test:
+    name: Infra Test (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    needs: [infra_plan]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: staging
+            tf_dir: portal-staging
+            role_to_assume: ${{ vars.AWS_PLAN_ROLE_STAGING_ARN }}
+            policy_data: policy/data/staging.json
+
+    # Use plan artifacts for Conftest policies, then run tofu tests in test mode.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+
+      - name: Configure AWS Credentials (OIDC) - plan role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.role_to_assume }}
+          role-session-name: pr-test-${{ matrix.env }}-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download plan artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: ${{ matrix.tf_dir }}
 
       - name: Install Conftest
         run: |
@@ -115,27 +208,29 @@ jobs:
           set -euo pipefail
           conftest verify -p policy --data "${{ matrix.policy_data }}" "${{ matrix.tf_dir }}/tfplan.json"
 
-      - name: Upload plan artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ matrix.env }}
-          path: |
-            ${{ matrix.tf_dir }}/tfplan
-            ${{ matrix.tf_dir }}/tfplan.json
-          if-no-files-found: error
+      - name: tofu init
+        working-directory: ${{ matrix.tf_dir }}
+        run: tofu init -input=false
 
       - name: tofu test
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_is_test_mode_enabled=true \
-          tofu test -test-directory=../tests
+          # Test mode disables resources that require apply-time values.
+          TF_VAR_is_test_mode_enabled=true           tofu test -test-directory=../tests
 
-  infracost:
-    name: Infracost Diff (PR)
+  infra_analysis:
+    name: Infra Analysis (${{ matrix.env }})
     runs-on: ubuntu-latest
-    needs: [plan_policy]
+    needs: [infra_plan]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: staging
+            tf_dir: portal-staging
 
+    # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
@@ -145,50 +240,30 @@ jobs:
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
-      # -------------------------
-      # Generate baseline (main)
-      # -------------------------
       - name: Checkout base branch
         run: |
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
 
-      - name: Infracost baseline (staging)
+      - name: Infracost baseline (${{ matrix.env }})
         run: |
-          infracost breakdown \
-            --path portal-staging \
-            --format json \
-            --out-file /tmp/infracost-base.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --format json             --out-file /tmp/infracost-base.json
 
-      # -------------------------
-      # Generate PR cost
-      # -------------------------
       - name: Checkout PR branch again
         run: |
           git checkout -
 
-      - name: Infracost current (staging)
+      - name: Infracost current (${{ matrix.env }})
         run: |
-          infracost breakdown \
-            --path portal-staging \
-            --format json \
-            --out-file /tmp/infracost-current.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --format json             --out-file /tmp/infracost-current.json
 
-      - name: Infracost diff (staging)
+      - name: Infracost diff (${{ matrix.env }})
         run: |
-          infracost diff \
-            --path portal-staging \
-            --compare-to /tmp/infracost-base.json \
-            --format json \
-            --out-file /tmp/infracost.json
+          infracost diff             --path ${{ matrix.tf_dir }}             --compare-to /tmp/infracost-base.json             --format json             --out-file /tmp/infracost.json
 
       - name: Build Infracost PR comment
         run: |
-          infracost diff \
-            --path portal-staging \
-            --compare-to /tmp/infracost-base.json \
-            --format diff \
-            --out-file /tmp/infracost.raw.md
+          infracost diff             --path ${{ matrix.tf_dir }}             --compare-to /tmp/infracost-base.json             --format diff             --out-file /tmp/infracost.raw.md
           baseline_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-base.json)
           current_total=$(jq -r '(.total_monthly_cost // .totalMonthlyCost // empty) | tostring' /tmp/infracost-current.json)
           cost_diff=$(jq -r '(.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) | tostring' /tmp/infracost.json)
@@ -202,11 +277,8 @@ jobs:
             cat /tmp/infracost.raw.md
           } > /tmp/infracost.md
 
-      # -------------------------
-      # Post PR comment
-      # -------------------------
       - name: Post Infracost comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
-          header: infracost
+          header: infracost-${{ matrix.env }}
           path: /tmp/infracost.md
