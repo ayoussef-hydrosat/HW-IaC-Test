@@ -1,7 +1,0 @@
-grafana_cloud_account_id  = "008923505280"
-grafana_cloud_external_id = "1413427"
-grafana_loki_endpoint     = "https://logs-prod-012.grafana.net/loki/api/v1/push"
-grafana_loki_username     = "1371221"
-grafana_loki_tenant_id    = "1371221"
-alloy_otlp_host           = "aaa78056587c04f6ea548196a33ee378-1486027141.us-east-2.elb.amazonaws.com"
-alloy_otlp_lb_zone_id     = "Z3AADJGX6KTTL2"

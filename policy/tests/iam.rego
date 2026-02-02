@@ -4,26 +4,26 @@ import rego.v1
 # Policy
 # Deny IAM policies with wildcard actions.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  is_iam_policy_resource(rc.type)
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  is_iam_policy_resource(resource.type)
+  after := resource.change.after
   after != null
   policy := json.unmarshal(after.policy)
   statement := policy.Statement[_]
   has_wildcard_action(statement)
-  msg := sprintf("IAM policy uses wildcard action: %s", [rc.address])
+  msg := sprintf("IAM policy uses wildcard action: %s", [resource.address])
 }
 
 # Deny IAM policies with wildcard resources.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  is_iam_policy_resource(rc.type)
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  is_iam_policy_resource(resource.type)
+  after := resource.change.after
   after != null
   policy := json.unmarshal(after.policy)
   statement := policy.Statement[_]
   has_wildcard_resource(statement)
-  msg := sprintf("IAM policy uses wildcard resource: %s", [rc.address])
+  msg := sprintf("IAM policy uses wildcard resource: %s", [resource.address])
 }
 
 is_iam_policy_resource(t) if { t == "aws_iam_policy" }
@@ -50,15 +50,15 @@ has_wildcard_resource(statement) if {
 
 # Require GitHub OIDC roles to scope the subject condition.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_iam_role"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_iam_role"
+  after := resource.change.after
   after != null
   policy := json.unmarshal(after.assume_role_policy)
   statement := policy.Statement[_]
   is_github_oidc_principal(statement)
   not has_github_sub_condition(statement)
-  msg := sprintf("GitHub OIDC role must scope subject: %s", [rc.address])
+  msg := sprintf("GitHub OIDC role must scope subject: %s", [resource.address])
 }
 
 is_github_oidc_principal(statement) if {
@@ -83,12 +83,12 @@ has_github_sub_condition(statement) if {
 
 # Require role policy attachments to specify a policy ARN.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_iam_role_policy_attachment"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_iam_role_policy_attachment"
+  after := resource.change.after
   after != null
   after.policy_arn == ""
-  msg := sprintf("IAM role policy attachment must set policy_arn: %s", [rc.address])
+  msg := sprintf("IAM role policy attachment must set policy_arn: %s", [resource.address])
 }
 
 # Tests

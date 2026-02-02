@@ -110,7 +110,7 @@ resource "aws_db_instance" "postgresql" {
   db_subnet_group_name   = aws_db_subnet_group.postgresql.name
   vpc_security_group_ids = [aws_security_group.rds.id]
 
-  backup_retention_period = 7
+  backup_retention_period = local.db_backup_retention_period
   backup_window           = "03:00-04:00"
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
@@ -146,4 +146,4 @@ resource "aws_instance" "bastion" {
 data "aws_secretsmanager_secret_version" "rds_password" {
   secret_id  = aws_secretsmanager_secret.rds_password.id
   depends_on = [aws_secretsmanager_secret_version.rds_password]
-} 
+}
