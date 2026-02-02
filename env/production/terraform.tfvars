@@ -18,7 +18,7 @@ ecs_cluster                = "hywater-portal"
 db_name                    = "hywater"
 db_username                = "postgres"
 db_instance_class          = "db.t3.micro"
-db_backup_retention_period = 30
+db_backup_retention_period = 31
 
 # EKS / Alloy
 eks_cluster_name       = "hywater-portal-monitoring"
