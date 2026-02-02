@@ -391,6 +391,106 @@ resource "aws_iam_role_policy_attachment" "github_actions_backend_deployment_att
   policy_arn = aws_iam_policy.github_backend_deployment.arn
 }
 
+# GitHub Action OIDC provider and role for infra plan access
+
+data "aws_iam_policy_document" "github_infra_plan" {
+  statement {
+    sid = "EKSReadOnly"
+    actions = [
+      "eks:ListClusters",
+      "eks:DescribeCluster",
+      "eks:ListNodegroups",
+      "eks:DescribeNodegroup",
+      "eks:ListFargateProfiles",
+      "eks:DescribeFargateProfile",
+      "eks:ListAddons",
+      "eks:DescribeAddon"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "SecretsManagerReadOnly"
+    actions = [
+      "secretsmanager:ListSecrets",
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:GetSecretValue"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "S3ReadOnly"
+    actions = [
+      "s3:ListAllMyBuckets",
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:GetObject",
+      "s3:GetObjectTagging"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "DynamoDBReadOnly"
+    actions = [
+      "dynamodb:ListTables",
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:Scan"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "DynamoDBStateLocking"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:GetItem",
+      "dynamodb:DescribeTable"
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "github_infra_plan" {
+  name        = "${local.project_name}-github-infra-plan"
+  description = "Read-only policy for GitHub Actions infra plan access"
+  policy      = data.aws_iam_policy_document.github_infra_plan.json
+}
+
+resource "aws_iam_role" "github_actions_infra_plan" {
+  name = "${local.project_name}-github-actions-infra-pr"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect    = "Allow",
+        Principal = { Federated = aws_iam_openid_connect_provider.github.arn },
+        Action    = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          },
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.github_org}/hywater-portal-infra:*"
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_infra_plan_attachment" {
+  role       = aws_iam_role.github_actions_infra_plan.name
+  policy_arn = aws_iam_policy.github_infra_plan.arn
+}
+
 # GitHub Action OIDC provider and role for deploying Backoffice application
 
 data "aws_iam_policy_document" "github_backoffice_deployment" {

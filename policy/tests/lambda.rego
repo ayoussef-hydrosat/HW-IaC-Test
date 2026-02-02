@@ -4,21 +4,21 @@ import rego.v1
 # Policy
 # Require Cognito invoke permissions for Lambda.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_lambda_permission"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_lambda_permission"
+  after := resource.change.after
   after != null
   after.principal != "cognito-idp.amazonaws.com"
-  msg := sprintf("Lambda permission principal must be cognito-idp.amazonaws.com: %s", [rc.address])
+  msg := sprintf("Lambda permission principal must be cognito-idp.amazonaws.com: %s", [resource.address])
 }
 
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_lambda_permission"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_lambda_permission"
+  after := resource.change.after
   after != null
   after.action != "lambda:InvokeFunction"
-  msg := sprintf("Lambda permission action must be lambda:InvokeFunction: %s", [rc.address])
+  msg := sprintf("Lambda permission action must be lambda:InvokeFunction: %s", [resource.address])
 }
 
 # Tests

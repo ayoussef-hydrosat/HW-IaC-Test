@@ -4,12 +4,12 @@ import rego.v1
 # Policy
 # Require bucket policies to be defined.
 deny contains msg if {
-  rc := input.resource_changes[_]
-  rc.type == "aws_s3_bucket_policy"
-  after := rc.change.after
+  resource := input.resource_changes[_]
+  resource.type == "aws_s3_bucket_policy"
+  after := resource.change.after
   after != null
   after.policy == ""
-  msg := sprintf("S3 bucket policy must be set: %s", [rc.address])
+  msg := sprintf("S3 bucket policy must be set: %s", [resource.address])
 }
 
 # Tests

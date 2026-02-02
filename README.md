@@ -1,10 +1,9 @@
-# Portal staging
+# Portal environments
 
-Folder `portal-staging` is all the OpenTofu code that defines HyWater portal, backoffice, backend AWS resources for staging environment.
+The OpenTofu code is shared across environments:
 
-# Portal production
-
-Folder `portal-production` is all the OpenTofu code that defines HyWater portal, backoffice, backend AWS resources for production environment.
+- `resources/`: root module with shared infrastructure resources
+- `env/staging` and `env/production`: environment-specific backend config and tfvars
 
 # Variables
 
@@ -18,7 +17,16 @@ Both environments expect Grafana & Alloy variables to be set in their `terraform
 - `alloy_otlp_host`
 - `alloy_otlp_lb_zone_id`
 
-The current values are stored in LastPass; copy them from the vault and place them in `portal-staging/terraform.tfvars` and `portal-production/terraform.tfvars` before running tofu.
+The current values are stored in LastPass; copy them from the vault and place them in `env/staging/terraform.tfvars` and `env/production/terraform.tfvars` before running tofu.
+
+# Backend bootstrap
+
+Create the S3 backend bucket and DynamoDB lock table before the first init:
+
+```
+./resources/bootstrap.sh staging
+./resources/bootstrap.sh production
+```
 
 # Lambdas
 
@@ -27,15 +35,15 @@ The logic is defined in `lambdas` folder, which is a node TypeScript app.
 When merging this repo on main, the CI/CD
 
 - builds the lambdas into different bundle per lambda subfolder
-- create one .zip file per bundle
-- upload the files on S3 in lambdas bucket
-- apply the terraform code (based on aws image, the CI installs OpenTofu via command line) for the lambdas only to redeploy them
+- create one .zip file per bundle (with fixed timestamp to make sure the hash is only based on the code)
+- calculate the sha256 of the build and upload the files on S3 in lambdas bucket only if it changed
+- apply the terraform code (based on aws image, the CI installs OpenTofu via command line) for the lambdas only to redeploy them, if the S3 object version changed
 
 ## To add a new lambda
 
-- Add the lambda definition in `lambdas.tf` for both `portal-production` and `portal-staging`
+- Add the lambda definition in `resources/lambda.tf`
 - Add a new folder in `lambdas/src`. The build script searches for folders in src to build a lambda per folder so the structure matters. The entry point of the lambda, where the handler function is implemented, must have the same name as the folder so the CI can find it.
-- Add the command in `.gitlab-ci.yml` for the new lambda. Example : `tofu apply -auto-approve -target=aws_lambda_function.cognito_custom_message_lambda`
+- Add the command in `.github/deployment.yml` for the new lambda. Example : `tofu apply -auto-approve -target=aws_lambda_function.cognito_custom_message_lambda`
 
 
 ```
@@ -51,8 +59,10 @@ When merging this repo on main, the CI/CD
 │   │       ├──utils
 │   │       ├── ...
 │   │       ├──messages
-├── portal-staging
-├── portal-production
+├── resources
+├── env
+│   ├── staging
+│   └── production
 
 ```
 

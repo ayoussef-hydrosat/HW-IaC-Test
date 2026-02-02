@@ -11,7 +11,7 @@ run "s3_public_access_block" {
     error_message = "S3 frontend must block public ACLs"
   }
   assert {
-    condition     = aws_s3_bucket_public_access_block.frontend.block_public_policy == false
+    condition     = aws_s3_bucket_public_access_block.frontend.block_public_policy
     error_message = "S3 frontend must block public bucket policies"
   }
   assert {
@@ -28,7 +28,7 @@ run "s3_public_access_block" {
     error_message = "S3 backoffice must block public ACLs"
   }
   assert {
-    condition     = aws_s3_bucket_public_access_block.backoffice.block_public_policy == false
+    condition     = aws_s3_bucket_public_access_block.backoffice.block_public_policy
     error_message = "S3 backoffice must block public bucket policies"
   }
   assert {
