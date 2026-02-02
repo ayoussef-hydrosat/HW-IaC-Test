@@ -262,13 +262,6 @@ jobs:
             --terraform-var is_test_mode_enabled=false \
             --format json \
             --out-file /tmp/infracost-base.json
-          infracost breakdown \
-            --path ${{ matrix.tf_dir }} \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --show-skipped \
-            --format table \
-            --out-file /tmp/infracost-base-skipped.txt
 
       - name: Checkout PR branch again
         run: |
@@ -282,13 +275,6 @@ jobs:
             --terraform-var is_test_mode_enabled=false \
             --format json \
             --out-file /tmp/infracost-current.json
-          infracost breakdown \
-            --path ${{ matrix.tf_dir }} \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --show-skipped \
-            --format table \
-            --out-file /tmp/infracost-current-skipped.txt
 
       - name: Infracost diff (${{ matrix.env }})
         run: |
@@ -299,14 +285,6 @@ jobs:
             --terraform-var is_test_mode_enabled=false \
             --format json \
             --out-file /tmp/infracost.json
-          infracost diff \
-            --path ${{ matrix.tf_dir }} \
-            --compare-to /tmp/infracost-base.json \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --show-skipped \
-            --format table \
-            --out-file /tmp/infracost-diff-skipped.txt
 
       - name: Build Infracost PR comment
         run: |
@@ -315,32 +293,24 @@ jobs:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.totalMonthlyCost // .total_monthly_cost // empty) as $t
-            | if $t != null then ($t | to_num)
-              else ([ .projects[]? | (.summary.totalMonthlyCost // .summary.total_monthly_cost // 0) | to_num ] | add)
-              end
+            (.totalMonthlyCost // .total_monthly_cost // 0) | to_num
           ' /tmp/infracost-base.json)
           current_total=$(jq -r '
             def to_num:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.totalMonthlyCost // .total_monthly_cost // empty) as $t
-            | if $t != null then ($t | to_num)
-              else ([ .projects[]? | (.summary.totalMonthlyCost // .summary.total_monthly_cost // 0) | to_num ] | add)
-              end
+            (.totalMonthlyCost // .total_monthly_cost // 0) | to_num
           ' /tmp/infracost-current.json)
           cost_diff=$(jq -r '
             def to_num:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            def diff_total:
-              (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) as $d
-              | if ($d == null) or ($d == "") then
-                  ([ .projects[]? | (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // 0) | to_num ] | add)
-                else ($d | to_num) end;
-            diff_total
+            (.diffTotalMonthlyCost // .diff_total_monthly_cost // empty) as $d
+            | if $d != null then ($d | to_num)
+              else ([ .projects[]? | (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // 0) | to_num ] | add)
+              end
           ' /tmp/infracost.json)
           {
             echo "## Infra Cost Analysis (${{ matrix.env }})"
@@ -348,20 +318,6 @@ jobs:
             if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
             if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
             if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
-            echo ""
-            echo "### Infracost details (show-skipped)"
-            echo "#### Baseline"
-            echo "```"
-            cat /tmp/infracost-base-skipped.txt
-            echo "```"
-            echo "#### Current"
-            echo "```"
-            cat /tmp/infracost-current-skipped.txt
-            echo "```"
-            echo "#### Diff"
-            echo "```"
-            cat /tmp/infracost-diff-skipped.txt
-            echo "```"
           } > /tmp/infracost.md
 
       - name: Post Infracost comment
