@@ -235,6 +235,9 @@ jobs:
           - env: staging
             tf_dir: resources
             tf_vars: env/staging/terraform.tfvars
+          - env: production
+            tf_dir: resources
+            tf_vars: env/production/terraform.tfvars
 
     # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
@@ -253,7 +256,19 @@ jobs:
 
       - name: Infracost baseline (${{ matrix.env }})
         run: |
-          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-base.json
+          infracost breakdown \
+            --path ${{ matrix.tf_dir }} \
+            --terraform-var-file ${{ matrix.tf_vars }} \
+            --terraform-var is_test_mode_enabled=false \
+            --format json \
+            --out-file /tmp/infracost-base.json
+          infracost breakdown \
+            --path ${{ matrix.tf_dir }} \
+            --terraform-var-file ${{ matrix.tf_vars }} \
+            --terraform-var is_test_mode_enabled=false \
+            --show-skipped \
+            --format table \
+            --out-file /tmp/infracost-base-skipped.txt
 
       - name: Checkout PR branch again
         run: |
@@ -261,17 +276,37 @@ jobs:
 
       - name: Infracost current (${{ matrix.env }})
         run: |
-          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-current.json
+          infracost breakdown \
+            --path ${{ matrix.tf_dir }} \
+            --terraform-var-file ${{ matrix.tf_vars }} \
+            --terraform-var is_test_mode_enabled=false \
+            --format json \
+            --out-file /tmp/infracost-current.json
+          infracost breakdown \
+            --path ${{ matrix.tf_dir }} \
+            --terraform-var-file ${{ matrix.tf_vars }} \
+            --terraform-var is_test_mode_enabled=false \
+            --show-skipped \
+            --format table \
+            --out-file /tmp/infracost-current-skipped.txt
 
       - name: Infracost diff (${{ matrix.env }})
         run: |
           infracost diff \
             --path ${{ matrix.tf_dir }} \
             --compare-to /tmp/infracost-base.json \
-            --terraform-var-file env/${{ matrix.env }}/terraform.tfvars \
+            --terraform-var-file ${{ matrix.tf_vars }} \
             --terraform-var is_test_mode_enabled=false \
             --format json \
             --out-file /tmp/infracost.json
+          infracost diff \
+            --path ${{ matrix.tf_dir }} \
+            --compare-to /tmp/infracost-base.json \
+            --terraform-var-file ${{ matrix.tf_vars }} \
+            --terraform-var is_test_mode_enabled=false \
+            --show-skipped \
+            --format table \
+            --out-file /tmp/infracost-diff-skipped.txt
 
       - name: Build Infracost PR comment
         run: |
@@ -307,6 +342,20 @@ jobs:
             if [ -n "$baseline_total" ] && [ "$baseline_total" != "null" ]; then echo "Baseline total (monthly): $baseline_total"; else echo "Baseline total (monthly): n/a"; fi
             if [ -n "$current_total" ] && [ "$current_total" != "null" ]; then echo "Current total (monthly): $current_total"; else echo "Current total (monthly): n/a"; fi
             if [ -n "$cost_diff" ] && [ "$cost_diff" != "null" ]; then echo "Cost diff (monthly): $cost_diff"; else echo "Cost diff (monthly): 0"; fi
+            echo ""
+            echo "### Infracost details (show-skipped)"
+            echo "#### Baseline"
+            echo "```"
+            cat /tmp/infracost-base-skipped.txt
+            echo "```"
+            echo "#### Current"
+            echo "```"
+            cat /tmp/infracost-current-skipped.txt
+            echo "```"
+            echo "#### Diff"
+            echo "```"
+            cat /tmp/infracost-diff-skipped.txt
+            echo "```"
           } > /tmp/infracost.md
 
       - name: Post Infracost comment
