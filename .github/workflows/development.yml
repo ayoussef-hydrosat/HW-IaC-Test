@@ -307,10 +307,7 @@ jobs:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.diffTotalMonthlyCost // .diff_total_monthly_cost // empty) as $d
-            | if $d != null then ($d | to_num)
-              else ([ .projects[]? | (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // 0) | to_num ] | add)
-              end
+            (.diffTotalMonthlyCost // .diff_total_monthly_cost // 0) | to_num
           ' /tmp/infracost.json)
           {
             echo "## Infra Cost Analysis (${{ matrix.env }})"
