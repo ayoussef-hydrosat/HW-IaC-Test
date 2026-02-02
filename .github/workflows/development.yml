@@ -234,10 +234,10 @@ jobs:
         include:
           - env: staging
             tf_dir: resources
-            tf_vars: env/staging/terraform.tfvars
+            tf_vars: ../env/staging/terraform.tfvars
           - env: production
             tf_dir: resources
-            tf_vars: env/production/terraform.tfvars
+            tf_vars: ../env/production/terraform.tfvars
 
     # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
