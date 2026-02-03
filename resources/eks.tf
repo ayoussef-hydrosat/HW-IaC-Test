@@ -64,6 +64,24 @@ resource "aws_eks_cluster" "monitoring" {
   depends_on = [aws_iam_role_policy_attachment.eks_cluster]
 }
 
+# EKS access entry for GitHub Actions infra deployment role (AWS-native access)
+resource "aws_eks_access_entry" "github_actions_infra_deployment" {
+  cluster_name  = aws_eks_cluster.monitoring.name
+  principal_arn = aws_iam_role.github_actions_infra_deployment.arn
+}
+
+resource "aws_eks_access_policy_association" "github_actions_infra_deployment_admin" {
+  cluster_name  = aws_eks_cluster.monitoring.name
+  principal_arn = aws_iam_role.github_actions_infra_deployment.arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.github_actions_infra_deployment]
+}
+
 # OIDC provider for IRSA
 data "tls_certificate" "eks" {
   url = aws_eks_cluster.monitoring.identity[0].oidc[0].issuer
