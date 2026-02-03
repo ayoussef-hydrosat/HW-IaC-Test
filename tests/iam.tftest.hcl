@@ -27,3 +27,52 @@ run "iam_github_oidc_sub_condition" {
   }
 
 }
+
+run "iam_github_actions_roles" {
+  command = plan
+
+  variables {
+    is_test_mode_enabled = true
+  }
+
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_frontend_deployment.name, "-github-actions-frontend-deployment")
+    error_message = "Frontend deployment role name must end with -github-actions-frontend-deployment"
+  }
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_backend_deployment.name, "-github-actions-backend-deployment")
+    error_message = "Backend deployment role name must end with -github-actions-backend-deployment"
+  }
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_infra_plan.name, "-github-actions-infra-pr")
+    error_message = "Infra plan role name must end with -github-actions-infra-pr"
+  }
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_backoffice_deployment.name, "-github-actions-backoffice-deployment")
+    error_message = "Backoffice deployment role name must end with -github-actions-backoffice-deployment"
+  }
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_lambda_deployment.name, "-github-actions-lambda-deployment")
+    error_message = "Lambda deployment role name must end with -github-actions-lambda-deployment"
+  }
+
+  assert {
+    condition     = endswith(aws_iam_role.github_actions_infra_deployment.name, "-github-actions-infra-deployment")
+    error_message = "Infra deployment role name must end with -github-actions-infra-deployment"
+  }
+
+  assert {
+    condition     = aws_iam_role_policy_attachment.github_actions_infra_deployment_admin.policy_arn != ""
+    error_message = "Infra deployment role must attach a managed policy"
+  }
+
+  assert {
+    condition     = aws_iam_role_policy_attachment.github_actions_infra_deployment_admin.policy_arn == "arn:aws:iam::aws:policy/AdministratorAccess"
+    error_message = "Infra deployment role must attach AdministratorAccess"
+  }
+}

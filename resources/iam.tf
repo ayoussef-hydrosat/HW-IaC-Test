@@ -704,3 +704,33 @@ resource "aws_iam_role_policy_attachment" "github_actions_lambda_deployment_atta
   role       = aws_iam_role.github_actions_lambda_deployment.name
   policy_arn = aws_iam_policy.github_lambda_deployment.arn
 }
+
+# GitHub Action OIDC role for infra deployment (plan/apply)
+resource "aws_iam_role" "github_actions_infra_deployment" {
+  name = "${local.project_name}-github-actions-infra-deployment"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect    = "Allow",
+        Principal = { Federated = aws_iam_openid_connect_provider.github.arn },
+        Action    = "sts:AssumeRoleWithWebIdentity",
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          },
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = [
+              "repo:${var.github_org}/hywater-portal-infra:*"
+            ]
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_infra_deployment_admin" {
+  role       = aws_iam_role.github_actions_infra_deployment.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
