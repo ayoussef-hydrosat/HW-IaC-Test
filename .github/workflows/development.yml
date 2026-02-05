@@ -161,6 +161,49 @@ jobs:
             ${{ matrix.tf_dir }}/tfplan.json
           if-no-files-found: error
 
+  validate_staging:
+    name: Validate (staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      ROLE_TO_ASSUME: arn:aws:iam::${{ vars.AWS_ACCOUNT_STAGING }}:role/hywater-portal-staging-github-actions-infra-deployment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          role-session-name: github-actions-staging-validate-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.10.6
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: validation-tests/go.mod
+
+      - name: Capture tofu outputs (staging)
+        working-directory: resources
+        run: |
+          tofu init -input=false -backend-config=../env/staging/backend.hcl
+          tofu apply -refresh-only -auto-approve -var-file=../env/staging/terraform.tfvars
+          tofu output -json > ../staging-outputs.json
+
+      - name: Run staging validation tests
+        working-directory: validation-tests
+        env:
+          AWS_SDK_LOAD_CONFIG: "1"
+          TF_OUTPUTS_FILE: ${{ github.workspace }}/staging-outputs.json
+        run: |
+          go mod download
+          go test ./staging -v -timeout 30m -count=1
+
   infra_test:
     name: Infra Test (${{ matrix.env }})
     runs-on: ubuntu-latest
@@ -234,10 +277,7 @@ jobs:
         include:
           - env: staging
             tf_dir: resources
-            tf_vars: ../env/staging/terraform.tfvars
-          - env: production
-            tf_dir: resources
-            tf_vars: ../env/production/terraform.tfvars
+            tf_vars: env/staging/terraform.tfvars
 
     # Compare base costs vs PR costs and post an env-specific Infracost comment.
     steps:
@@ -256,12 +296,7 @@ jobs:
 
       - name: Infracost baseline (${{ matrix.env }})
         run: |
-          infracost breakdown \
-            --path ${{ matrix.tf_dir }} \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --format json \
-            --out-file /tmp/infracost-base.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-base.json
 
       - name: Checkout PR branch again
         run: |
@@ -269,22 +304,11 @@ jobs:
 
       - name: Infracost current (${{ matrix.env }})
         run: |
-          infracost breakdown \
-            --path ${{ matrix.tf_dir }} \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --format json \
-            --out-file /tmp/infracost-current.json
+          infracost breakdown             --path ${{ matrix.tf_dir }}             --terraform-var-file ${{ matrix.tf_vars }}             --format json             --out-file /tmp/infracost-current.json
 
       - name: Infracost diff (${{ matrix.env }})
         run: |
-          infracost diff \
-            --path ${{ matrix.tf_dir }} \
-            --compare-to /tmp/infracost-base.json \
-            --terraform-var-file ${{ matrix.tf_vars }} \
-            --terraform-var is_test_mode_enabled=false \
-            --format json \
-            --out-file /tmp/infracost.json
+          infracost diff             --path ${{ matrix.tf_dir }}             --compare-to /tmp/infracost-base.json             --format json             --out-file /tmp/infracost.json
 
       - name: Build Infracost PR comment
         run: |
@@ -293,21 +317,26 @@ jobs:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.totalMonthlyCost // .total_monthly_cost // 0) | to_num
+            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
           ' /tmp/infracost-base.json)
           current_total=$(jq -r '
             def to_num:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.totalMonthlyCost // .total_monthly_cost // 0) | to_num
+            [ .projects[]? | (.total_monthly_cost // .totalMonthlyCost // 0) | to_num ] | add
           ' /tmp/infracost-current.json)
           cost_diff=$(jq -r '
             def to_num:
               if type=="string" then (gsub("\\$"; "") | tonumber? // 0)
               elif type=="number" then .
               else 0 end;
-            (.diffTotalMonthlyCost // .diff_total_monthly_cost // 0) | to_num
+            def diff_total:
+              (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // empty) as $d
+              | if ($d == null) or ($d == "") then
+                  ([ .projects[]? | (.diff.total_monthly_cost.change // .diff.totalMonthlyCost.change // .diff.total_monthly_cost.delta // .diff.totalMonthlyCost.delta // 0) | to_num ] | add)
+                else ($d | to_num) end;
+            diff_total
           ' /tmp/infracost.json)
           {
             echo "## Infra Cost Analysis (${{ matrix.env }})"

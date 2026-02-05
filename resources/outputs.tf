@@ -67,6 +67,11 @@ output "ecs_service_name" {
   value = aws_ecs_service.api.name
 }
 
+output "eks_cluster_name" {
+  description = "EKS monitoring cluster name"
+  value       = aws_eks_cluster.monitoring.name
+}
+
 output "alb_target_group_arn" {
   value = aws_lb_target_group.api.arn
 }
