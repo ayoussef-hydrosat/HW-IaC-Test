@@ -103,7 +103,8 @@ jobs:
         working-directory: ${{ matrix.tf_dir }}
         run: |
           set -euo pipefail
-          TF_VAR_is_test_mode_enabled=${{ env.PLAN_TEST_MODE_ENABLE }}           tofu plan -input=false -var-file=../${{ matrix.tf_vars }} -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
+          TF_VAR_is_test_mode_enabled=true \
+          tofu plan -input=false -var-file=../${{ matrix.tf_vars }} -out=tfplan ${{ env.PLAN_REFRESH == 'false' && '-refresh=false' || '' }}
 
       - name: tofu show json
         working-directory: ${{ matrix.tf_dir }}
